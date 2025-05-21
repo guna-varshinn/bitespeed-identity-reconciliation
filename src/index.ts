@@ -2,7 +2,7 @@ import 'reflect-metadata';
 import { createConnection, getRepository } from 'typeorm';
 import express, { Request, Response } from 'express';
 import rateLimit from 'express-rate-limit';
-import { Contact } from './entity/Contact';
+import { Contact } from './entity/contact';
 import { URL } from 'url';
 
 const app = express();
