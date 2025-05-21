@@ -12,16 +12,20 @@ export class Contact {
   @PrimaryGeneratedColumn()
   id!: number;
 
-  @Column({ nullable: true })
+  @Column({ type: 'varchar', nullable: true })  
   phoneNumber!: string | null;
 
-  @Column({ nullable: true })
+  @Column({ type: 'varchar', nullable: true }) 
   email!: string | null;
 
-  @Column({ nullable: true })
+  @Column({ type: 'int', nullable: true })     
   linkedId!: number | null;
 
-  @Column({ type: 'enum', enum: ['primary', 'secondary'], default: 'primary' })
+  @Column({
+    type: 'enum',
+    enum: ['primary', 'secondary'],
+    default: 'primary'
+  })
   linkPrecedence!: 'primary' | 'secondary';
 
   @CreateDateColumn()
