@@ -3,21 +3,46 @@ import { createConnection, getRepository } from 'typeorm';
 import express, { Request, Response } from 'express';
 import rateLimit from 'express-rate-limit';
 import { Contact } from './entity/Contact';
+import { URL } from 'url';
 
 const app = express();
 app.use(express.json());
 
 const limiter = rateLimit({
-  windowMs: 15 * 60 * 1000,
-  max: 100
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 100,
 });
 app.use(limiter);
 
-createConnection().then(() => {
-  app.listen(process.env.PORT || 3000, () => {
-    console.log('Server running on port 3000');
+const databaseUrl = process.env.DATABASE_URL;
+if (!databaseUrl) {
+  console.error('DATABASE_URL environment variable is not set');
+  process.exit(1);
+}
+
+const dbUrl = new URL(databaseUrl);
+
+createConnection({
+  type: 'postgres',
+  host: dbUrl.hostname,
+  port: Number(dbUrl.port),
+  username: dbUrl.username,
+  password: dbUrl.password,
+  database: dbUrl.pathname.slice(1),
+  entities: [Contact],
+  synchronize: true, // set to false in production if you want strict schema control
+  logging: false,
+})
+  .then(() => {
+    console.log('Database connected successfully');
+    app.listen(process.env.PORT || 3000, () => {
+      console.log('Server running on port', process.env.PORT || 3000);
+    });
+  })
+  .catch((error: any) => {
+    console.error('Database connection error:', error);
+    process.exit(1);
   });
-});
 
 app.post('/identify', async (req: Request, res: Response) => {
   const { email, phoneNumber } = req.body;
@@ -32,8 +57,8 @@ app.post('/identify', async (req: Request, res: Response) => {
     const contacts = await contactRepository.find({
       where: [
         { email: email || undefined },
-        { phoneNumber: phoneNumber?.toString() || undefined }
-      ]
+        { phoneNumber: phoneNumber?.toString() || undefined },
+      ],
     });
 
     const primaries = new Map<number, Contact>();
@@ -55,7 +80,7 @@ app.post('/identify', async (req: Request, res: Response) => {
       const newContact = contactRepository.create({
         email,
         phoneNumber: phoneNumber?.toString(),
-        linkPrecedence: 'primary'
+        linkPrecedence: 'primary',
       });
       await contactRepository.save(newContact);
       return res.status(200).json({
@@ -63,8 +88,8 @@ app.post('/identify', async (req: Request, res: Response) => {
           primaryContactId: newContact.id,
           emails: newContact.email ? [newContact.email] : [],
           phoneNumbers: newContact.phoneNumber ? [newContact.phoneNumber] : [],
-          secondaryContactIds: []
-        }
+          secondaryContactIds: [],
+        },
       });
     } else {
       const sortedPrimaries = Array.from(primaries.values()).sort(
@@ -78,7 +103,9 @@ app.post('/identify', async (req: Request, res: Response) => {
         primary.linkedId = mainPrimary.id;
         await contactRepository.save(primary);
 
-        const linkedContacts = await contactRepository.find({ where: { linkedId: primary.id } });
+        const linkedContacts = await contactRepository.find({
+          where: { linkedId: primary.id },
+        });
         for (const linkedContact of linkedContacts) {
           linkedContact.linkedId = mainPrimary.id;
           await contactRepository.save(linkedContact);
@@ -88,26 +115,28 @@ app.post('/identify', async (req: Request, res: Response) => {
       const groupContacts = await contactRepository.find({
         where: [
           { id: mainPrimary.id },
-          { linkedId: mainPrimary.id }
-        ]
+          { linkedId: mainPrimary.id },
+        ],
       });
 
       const existingEmails = new Set(
-        groupContacts.map((c: Contact) => c.email).filter((e: any): e is string => !!e)
+        groupContacts.map((c: { email: any; }) => c.email).filter((e: any): e is string => !!e)
       );
       const existingPhones = new Set(
-        groupContacts.map((c: Contact) => c.phoneNumber).filter((p: any): p is string => !!p)
+        groupContacts.map((c: { phoneNumber: any; }) => c.phoneNumber).filter((p: any): p is string => !!p)
       );
 
       const emailExists = email ? existingEmails.has(email) : false;
-      const phoneExists = phoneNumber ? existingPhones.has(phoneNumber.toString()) : false;
+      const phoneExists = phoneNumber
+        ? existingPhones.has(phoneNumber.toString())
+        : false;
 
       if ((email && !emailExists) || (phoneNumber && !phoneExists)) {
         const newSecondary = contactRepository.create({
           email,
           phoneNumber: phoneNumber?.toString(),
           linkedId: mainPrimary.id,
-          linkPrecedence: 'secondary'
+          linkPrecedence: 'secondary',
         });
         await contactRepository.save(newSecondary);
       }
@@ -115,14 +144,14 @@ app.post('/identify', async (req: Request, res: Response) => {
       const updatedGroupContacts = await contactRepository.find({
         where: [
           { id: mainPrimary.id },
-          { linkedId: mainPrimary.id }
+          { linkedId: mainPrimary.id },
         ],
-        order: { createdAt: 'ASC' }
+        order: { createdAt: 'ASC' },
       });
 
       const emails = Array.from(
         new Set(
-          updatedGroupContacts.map((c: Contact) => c.email).filter((e: any): e is string => !!e)
+          updatedGroupContacts.map((c: { email: any; }) => c.email).filter((e: any): e is string => !!e)
         )
       );
       const primaryEmail = mainPrimary.email;
@@ -134,7 +163,7 @@ app.post('/identify', async (req: Request, res: Response) => {
 
       const phoneNumbers = Array.from(
         new Set(
-          updatedGroupContacts.map((c: Contact) => c.phoneNumber).filter((p: any): p is string => !!p)
+          updatedGroupContacts.map((c: { phoneNumber: any; }) => c.phoneNumber).filter((p: any): p is string => !!p)
         )
       );
       const primaryPhone = mainPrimary.phoneNumber;
@@ -145,16 +174,16 @@ app.post('/identify', async (req: Request, res: Response) => {
       }
 
       const secondaryContactIds = updatedGroupContacts
-        .filter((c: Contact) => c.id !== mainPrimary.id)
-        .map((c: Contact) => c.id);
+        .filter((c: { id: number; }) => c.id !== mainPrimary.id)
+        .map((c: { id: any; }) => c.id);
 
       return res.status(200).json({
         contact: {
           primaryContactId: mainPrimary.id,
           emails: [...new Set(emails)],
           phoneNumbers: [...new Set(phoneNumbers)],
-          secondaryContactIds
-        }
+          secondaryContactIds,
+        },
       });
     }
   } catch (error) {
