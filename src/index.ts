@@ -1,9 +1,8 @@
 import 'reflect-metadata';
-import { createConnection } from 'typeorm';
-import express from 'express';
-import { Contact } from './entity/Contact';
-import { Request, Response } from 'express';
+import { createConnection, getRepository } from 'typeorm';
+import express, { Request, Response } from 'express';
 import rateLimit from 'express-rate-limit';
+import { Contact } from './entity/Contact';
 
 const app = express();
 app.use(express.json());
@@ -27,7 +26,7 @@ app.post('/identify', async (req: Request, res: Response) => {
     return res.status(400).json({ error: 'Either email or phoneNumber must be provided' });
   }
 
-  const contactRepository = (await import('./entity/Contact')).default.getRepository(Contact);
+  const contactRepository = getRepository(Contact);
 
   try {
     const contacts = await contactRepository.find({
@@ -51,6 +50,7 @@ app.post('/identify', async (req: Request, res: Response) => {
     }
 
     let mainPrimary: Contact;
+
     if (primaries.size === 0) {
       const newContact = contactRepository.create({
         email,
@@ -67,7 +67,9 @@ app.post('/identify', async (req: Request, res: Response) => {
         }
       });
     } else {
-      const sortedPrimaries = Array.from(primaries.values()).sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime());
+      const sortedPrimaries = Array.from(primaries.values()).sort(
+        (a: Contact, b: Contact) => a.createdAt.getTime() - b.createdAt.getTime()
+      );
       mainPrimary = sortedPrimaries[0];
       const otherPrimaries = sortedPrimaries.slice(1);
 
@@ -90,8 +92,12 @@ app.post('/identify', async (req: Request, res: Response) => {
         ]
       });
 
-      const existingEmails = new Set(groupContacts.map(c => c.email).filter(e => e));
-      const existingPhones = new Set(groupContacts.map(c => c.phoneNumber).filter(p => p));
+      const existingEmails = new Set(
+        groupContacts.map((c: Contact) => c.email).filter((e: any): e is string => !!e)
+      );
+      const existingPhones = new Set(
+        groupContacts.map((c: Contact) => c.phoneNumber).filter((p: any): p is string => !!p)
+      );
 
       const emailExists = email ? existingEmails.has(email) : false;
       const phoneExists = phoneNumber ? existingPhones.has(phoneNumber.toString()) : false;
@@ -114,7 +120,11 @@ app.post('/identify', async (req: Request, res: Response) => {
         order: { createdAt: 'ASC' }
       });
 
-      const emails = Array.from(new Set(updatedGroupContacts.map(c => c.email).filter(e => e)));
+      const emails = Array.from(
+        new Set(
+          updatedGroupContacts.map((c: Contact) => c.email).filter((e: any): e is string => !!e)
+        )
+      );
       const primaryEmail = mainPrimary.email;
       if (primaryEmail) {
         emails.unshift(primaryEmail);
@@ -122,7 +132,11 @@ app.post('/identify', async (req: Request, res: Response) => {
         if (index !== 0) emails.splice(index, 1);
       }
 
-      const phoneNumbers = Array.from(new Set(updatedGroupContacts.map(c => c.phoneNumber).filter(p => p)));
+      const phoneNumbers = Array.from(
+        new Set(
+          updatedGroupContacts.map((c: Contact) => c.phoneNumber).filter((p: any): p is string => !!p)
+        )
+      );
       const primaryPhone = mainPrimary.phoneNumber;
       if (primaryPhone) {
         phoneNumbers.unshift(primaryPhone);
@@ -131,8 +145,8 @@ app.post('/identify', async (req: Request, res: Response) => {
       }
 
       const secondaryContactIds = updatedGroupContacts
-        .filter(c => c.id !== mainPrimary.id)
-        .map(c => c.id);
+        .filter((c: Contact) => c.id !== mainPrimary.id)
+        .map((c: Contact) => c.id);
 
       return res.status(200).json({
         contact: {
